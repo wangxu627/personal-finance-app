@@ -6,16 +6,24 @@ import {
   Typography,
   Divider,
   IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
 } from '@mui/material';
 import { Delete } from '@mui/icons-material';
-import { Transaction, getCategoryById } from '@/app/App';
+import { Transaction, getCategoryById, Category } from '../types';
+import { useState } from 'react';
 
 interface TransactionListProps {
   transactions: Transaction[];
   onDelete: (transactionId: string) => void;
+  getCategory?: (categoryId: string) => Category;
 }
 
-export function TransactionList({ transactions, onDelete }: TransactionListProps) {
+export function TransactionList({ transactions, onDelete }: TransactionListProps) { ;
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const formatCurrency = (amount: number, type: 'expense' | 'income') => {
     const sign = type === 'income' ? '+' : '-';
     return `${sign}¥${amount.toFixed(2)}`;
@@ -165,7 +173,7 @@ export function TransactionList({ transactions, onDelete }: TransactionListProps
                     <IconButton
                       size="small"
                       edge="end"
-                      onClick={() => onDelete(transaction.id)}
+                      onClick={() => setPendingDeleteId(transaction.id)}
                       aria-label="删除"
                     >
                       <Delete fontSize="small" />
@@ -180,6 +188,29 @@ export function TransactionList({ transactions, onDelete }: TransactionListProps
           ))}
         </List>
       </Paper>
+
+      <Dialog
+        open={pendingDeleteId !== null}
+        onClose={() => setPendingDeleteId(null)}
+      >
+        <DialogTitle>确认删除</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">确定要删除这条记录吗？</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingDeleteId(null)}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              if (pendingDeleteId) onDelete(pendingDeleteId);
+              setPendingDeleteId(null);
+            }}
+          >
+            删除
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

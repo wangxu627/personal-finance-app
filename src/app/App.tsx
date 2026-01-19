@@ -1,23 +1,34 @@
-import { useEffect, useState } from 'react';
+/* @refresh skip */
+import { CalendarToday } from '@mui/icons-material';
 import {
   AppBar,
-  Toolbar,
-  Typography,
-  IconButton,
   Box,
-  ThemeProvider,
   createTheme,
   CssBaseline,
+  IconButton,
   Popover,
+  ThemeProvider,
+  Toolbar,
+  Typography,
 } from '@mui/material';
-import { CalendarToday } from '@mui/icons-material';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DateCalendar } from '@mui/x-date-pickers/DateCalendar';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { zhCN } from 'date-fns/locale';
-import { SummaryCard } from '@/app/components/SummaryCard';
-import { TransactionList } from '@/app/components/TransactionList';
-import { QuickAddInput } from '@/app/components/QuickAddInput';
+import { useEffect, useState } from 'react';
+import { QuickAddInput } from './components/QuickAddInput';
+import { SummaryCard } from './components/SummaryCard';
+import { TransactionList } from './components/TransactionList';
+import {
+  Category,
+  Transaction,
+  CATEGORIES,
+  getCategoryById,
+  updateCustomCategoryCache,
+} from './types';
+
+export type { Category, Transaction };
+export { CATEGORIES, getCategoryById };
 
 // Material 3 Light Theme
 const theme = createTheme({
@@ -77,41 +88,6 @@ const theme = createTheme({
     },
   },
 });
-
-export interface Category {
-  id: string;
-  name: string;
-  icon?: string;  // emoji 图标（可选）
-  color?: string; // 自定义颜色（当没有 emoji 时使用）
-}
-
-// 类别配置 - 集中管理所有类别
-export const CATEGORIES: Record<string, Category> = {
-  food: { id: 'food', name: '餐饮', icon: '🍔' },
-  transport: { id: 'transport', name: '交通', icon: '🚗' },
-  shopping: { id: 'shopping', name: '购物', icon: '🛍️' },
-  entertainment: { id: 'entertainment', name: '娱乐', icon: '🎮' },
-  daily: { id: 'daily', name: '日常', icon: '🏠' },
-  income: { id: 'income', name: '收入', icon: '💰' },
-  other: { id: 'other', name: '其他', icon: '📝' },
-  // 自定义类别示例（无 emoji，使用颜色）
-  fitness: { id: 'custom-fitness', name: '健身', color: '#4CAF50' },
-  education: { id: 'custom-education', name: '教育', color: '#2196F3' },
-};
-
-// 根据类别ID获取类别配置
-export const getCategoryById = (categoryId: string): Category => {
-  return CATEGORIES[categoryId] || CATEGORIES.other;
-};
-
-export interface Transaction {
-  id: string;
-  description: string;
-  amount: number;
-  categoryId: string;  // 使用类别ID而非名称
-  date: string;
-  type: 'expense' | 'income';
-}
 
 const DB_NAME = 'finance-db';
 const DB_VERSION = 1;
@@ -255,6 +231,26 @@ const groupByMonth = (items: Transaction[]) => {
   return grouped;
 };
 
+const getTransactionTime = (t: Transaction) =>
+  new Date(t.createdAt ?? t.date).getTime();
+
+const getMonthKey = (date: Date) => `${date.getFullYear()}-${date.getMonth() + 1}`;
+
+const formatLocalDate = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const formatLocalDateTime = (d: Date) => {
+  const datePart = formatLocalDate(d);
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const s = String(d.getSeconds()).padStart(2, '0');
+  return `${datePart}T${h}:${min}:${s}`;
+};
+
 export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -276,8 +272,10 @@ export default function App() {
       if (allCats.length === 0) {
         await Promise.all(INITIAL_CUSTOM_CATEGORIES.map(saveCategory));
         if (cancelled) return;
+        updateCustomCategoryCache(INITIAL_CUSTOM_CATEGORIES);
         setCustomCategories(INITIAL_CUSTOM_CATEGORIES);
       } else {
+        updateCustomCategoryCache(allCats);
         setCustomCategories(allCats);
       }
     };
@@ -300,6 +298,9 @@ export default function App() {
 
   // 获取当月数据（无 mock）
   const currentTransactions = transactions[monthKey] || [];
+  const sortedCurrentTransactions = [...currentTransactions].sort(
+    (a, b) => getTransactionTime(b) - getTransactionTime(a)
+  );
 
   const totalExpense = currentTransactions
     .filter(t => t.type === 'expense')
@@ -326,17 +327,19 @@ export default function App() {
     handleMonthMenuClose();
   };
 
-  const handleAddTransaction = (description: string, amount: number, categoryId?: string) => {
+  const handleAddTransaction = (description: string, amount: number, categoryId?: string, createdAtOverride?: string) => {
+    const now = createdAtOverride ? new Date(createdAtOverride) : new Date();
     const newTransaction: Transaction = {
-      id: `${Date.now()}`,
+      id: `${now.getTime()}`,
       description,
       amount,
       categoryId: categoryId || 'other',
-      date: new Date().toISOString().split('T')[0],
+      date: formatLocalDate(now),
+      createdAt: formatLocalDateTime(now),
       type: 'expense',
     };
 
-    const key = `${currentYear}-${currentMonth}`;
+    const key = getMonthKey(now);
     setTransactions(prev => ({
       ...prev,
       [key]: [newTransaction, ...(prev[key] || [])],
@@ -345,16 +348,31 @@ export default function App() {
     void saveTransaction(newTransaction);
   };
 
+  const handleDeleteTransaction = (transactionId: string) => {
+    const key = `${currentYear}-${currentMonth}`;
+    setTransactions(prev => ({
+      ...prev,
+      [key]: (prev[key] || []).filter(t => t.id !== transactionId),
+    }));
+    void deleteTransaction(transactionId);
+  };
+
   const handleUpsertCategory = (category: Category) => {
     setCustomCategories(prev => {
       const exists = prev.some(c => c.id === category.id);
-      return exists ? prev.map(c => (c.id === category.id ? category : c)) : [...prev, category];
+      const next = exists ? prev.map(c => (c.id === category.id ? category : c)) : [...prev, category];
+      updateCustomCategoryCache(next);
+      return next;
     });
     void saveCategory(category);
   };
 
   const handleDeleteCategory = (categoryId: string) => {
-    setCustomCategories(prev => prev.filter(c => c.id !== categoryId));
+    setCustomCategories(prev => {
+      const next = prev.filter(c => c.id !== categoryId);
+      updateCustomCategoryCache(next);
+      return next;
+    });
     void deleteCategory(categoryId);
   };
 
@@ -447,7 +465,10 @@ export default function App() {
           />
 
           {/* 账单列表 */}
-          <TransactionList transactions={currentTransactions} />
+          <TransactionList
+            transactions={sortedCurrentTransactions}
+            onDelete={handleDeleteTransaction}
+          />
         </Box>
 
         {/* 固定底部输入区域 */}

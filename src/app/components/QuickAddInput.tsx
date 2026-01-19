@@ -17,11 +17,11 @@ import {
   ListItem,
   ListItemText,
 } from '@mui/material';
-import { Add, AttachMoney, Category as CategoryIcon, Settings, Delete, Edit } from '@mui/icons-material';
-import { Category, CATEGORIES } from '@/app/App';
+import { Add, AttachMoney, Category as CategoryIcon, Settings, Delete, Edit, AccessTime } from '@mui/icons-material';
+import { Category, CATEGORIES } from '../types';
 
 interface QuickAddInputProps {
-  onAdd: (description: string, amount: number, categoryId?: string) => void;
+  onAdd: (description: string, amount: number, categoryId?: string, createdAtOverride?: string) => void;
   customCategories: Category[];
   onUpsertCategory: (category: Category) => void;
   onDeleteCategory: (categoryId: string) => void;
@@ -57,14 +57,16 @@ export function QuickAddInput({ onAdd, customCategories, onUpsertCategory, onDel
   const [amount, setAmount] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+
   // 分类管理相关状态
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState(PRESET_COLORS[0]);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // 合并默认类别和自定义类别
-  const allCategories = [...getDefaultCategories(), ...customCategories];
+  const defaultCategories = getDefaultCategories();
+  const allCategories = [...defaultCategories, ...customCategories];
 
   const handleCategoryMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -80,18 +82,23 @@ export function QuickAddInput({ onAdd, customCategories, onUpsertCategory, onDel
   };
 
   const handleAdd = () => {
-    if (!description.trim() || !amount || parseFloat(amount) <= 0) {
+    const trimmedDescription = description.trim();
+    if (!trimmedDescription || !amount || parseFloat(amount) <= 0) {
       return;
     }
 
-    onAdd(description.trim(), parseFloat(amount), selectedCategory?.id);
-    
+    // datetime-local 返回的是 "YYYY-MM-DDTHH:mm"，直接作为本地时间字符串传递
+    const createdAtOverride = useCustomTime && customDateTime ? customDateTime : undefined;
+
+    onAdd(trimmedDescription, parseFloat(amount), selectedCategory?.id, createdAtOverride);
+
     // 清空输入
     setDescription('');
     setAmount('');
     setSelectedCategory(null);
+    setCustomDateTime('');
+    setUseCustomTime(false);
   };
-
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter') {
@@ -99,7 +106,9 @@ export function QuickAddInput({ onAdd, customCategories, onUpsertCategory, onDel
     }
   };
 
-  // 分类管理功能
+  const [useCustomTime, setUseCustomTime] = useState(false);
+  const [customDateTime, setCustomDateTime] = useState('');
+
   const handleOpenCategoryDialog = () => {
     setCategoryDialogOpen(true);
     handleCategoryMenuClose();
@@ -118,7 +127,7 @@ export function QuickAddInput({ onAdd, customCategories, onUpsertCategory, onDel
     }
 
     const category: Category = {
-      id: editingId ?? `custom-${Date.now()}`,
+      id: editingId ? `custom-${editingId}` : `custom-${Date.now()}`,
       name: newCategoryName.trim(),
       color: newCategoryColor,
     };
@@ -156,8 +165,6 @@ export function QuickAddInput({ onAdd, customCategories, onUpsertCategory, onDel
       />
     );
   };
-
-  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
 
   return (
     <Paper
@@ -288,6 +295,29 @@ export function QuickAddInput({ onAdd, customCategories, onUpsertCategory, onDel
             <Add />
           </Button>
         </Box>
+
+        {/* 时间选择（默认隐藏，仅按钮展开） */}
+        <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <IconButton
+            size="small"
+            aria-label="选择时间"
+            onClick={() => {
+              setUseCustomTime(prev => !prev);
+              if (useCustomTime) setCustomDateTime('');
+            }}
+          >
+            <AccessTime fontSize="small" />
+          </IconButton>
+          {useCustomTime && (
+            <TextField
+              size="small"
+              type="datetime-local"
+              value={customDateTime}
+              onChange={(e) => setCustomDateTime(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+          )}
+        </Box>
       </Box>
 
       {/* 分类管理对话框 */}
@@ -333,10 +363,10 @@ export function QuickAddInput({ onAdd, customCategories, onUpsertCategory, onDel
               onChange={(e) => setNewCategoryName(e.target.value)}
               sx={{ mb: 2 }}
             />
-            
+
             {/* 颜色选择器 */}
             <Box sx={{ mb: 2 }}>
-              <Box sx={{ mb: 1, color: 'text.secondary', fontSize: '0.875rem' }}>选择颜色</Box>
+              <Box sx={{ mb: 1, color: 'text.secondary', fontSize: '2.875rem' }}>选择颜色</Box>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                 {PRESET_COLORS.map((color) => (
                   <IconButton
