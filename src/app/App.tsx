@@ -4,14 +4,17 @@ import {
   Toolbar,
   Typography,
   IconButton,
-  Menu,
-  MenuItem,
   Box,
   ThemeProvider,
   createTheme,
   CssBaseline,
+  Popover,
 } from '@mui/material';
 import { CalendarToday } from '@mui/icons-material';
+import { DateCalendar } from '@mui/x-date-pickers/DateCalendar';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { zhCN } from 'date-fns/locale';
 import { SummaryCard } from '@/app/components/SummaryCard';
 import { TransactionList } from '@/app/components/TransactionList';
 import { QuickAddInput } from '@/app/components/QuickAddInput';
@@ -75,46 +78,66 @@ const theme = createTheme({
   },
 });
 
+export interface Category {
+  id: string;
+  name: string;
+  icon?: string;  // emoji 图标（可选）
+  color?: string; // 自定义颜色（当没有 emoji 时使用）
+}
+
+// 类别配置 - 集中管理所有类别
+export const CATEGORIES: Record<string, Category> = {
+  food: { id: 'food', name: '餐饮', icon: '🍔' },
+  transport: { id: 'transport', name: '交通', icon: '🚗' },
+  shopping: { id: 'shopping', name: '购物', icon: '🛍️' },
+  entertainment: { id: 'entertainment', name: '娱乐', icon: '🎮' },
+  daily: { id: 'daily', name: '日常', icon: '🏠' },
+  income: { id: 'income', name: '收入', icon: '💰' },
+  other: { id: 'other', name: '其他', icon: '📝' },
+  // 自定义类别示例（无 emoji，使用颜色）
+  fitness: { id: 'fitness', name: '健身', color: '#4CAF50' },
+  education: { id: 'education', name: '教育', color: '#2196F3' },
+};
+
+// 根据类别ID获取类别配置
+export const getCategoryById = (categoryId: string): Category => {
+  return CATEGORIES[categoryId] || CATEGORIES.other;
+};
+
 export interface Transaction {
   id: string;
   description: string;
   amount: number;
-  category: string;
+  categoryId: string;  // 使用类别ID而非名称
   date: string;
   type: 'expense' | 'income';
 }
 
 const generateMockData = (year: number, month: number): Transaction[] => {
-  const categories = [
-    { name: '餐饮', icon: '🍔' },
-    { name: '交通', icon: '🚗' },
-    { name: '购物', icon: '🛍️' },
-    { name: '娱乐', icon: '🎮' },
-    { name: '日常', icon: '🏠' },
-  ];
+  const expenseCategories: (keyof typeof CATEGORIES)[] = ['food', 'transport', 'shopping', 'entertainment', 'daily'];
   
-  const descriptions = {
-    '餐饮': ['早餐', '午餐', '晚餐', '咖啡', '奶茶', '水果'],
-    '交通': ['打车', '地铁', '公交', '停车费', '加油'],
-    '购物': ['衣服', '鞋子', '日用品', '电子产品', '书籍'],
-    '娱乐': ['电影', '游戏', '运动', '音乐会', 'KTV'],
-    '日常': ['水电费', '房租', '话费', '网费', '医药'],
+  const descriptions: Record<string, string[]> = {
+    food: ['早餐', '午餐', '晚餐', '咖啡', '奶茶', '水果'],
+    transport: ['打车', '地铁', '公交', '停车费', '加油'],
+    shopping: ['衣服', '鞋子', '日用品', '电子产品', '书籍'],
+    entertainment: ['电影', '游戏', '运动', '音乐会', 'KTV'],
+    daily: ['水电费', '房租', '话费', '网费', '医药'],
   };
 
   const transactions: Transaction[] = [];
   const daysInMonth = new Date(year, month, 0).getDate();
 
-  for (let i = 0; i < 15; i++) {
-    const category = categories[Math.floor(Math.random() * categories.length)];
-    const descs = descriptions[category.name as keyof typeof descriptions];
+  for (let i = 0; i < 30; i++) {
+    const categoryId = expenseCategories[Math.floor(Math.random() * expenseCategories.length)];
+    const descs = descriptions[categoryId];
     const description = descs[Math.floor(Math.random() * descs.length)];
     const day = Math.floor(Math.random() * daysInMonth) + 1;
     
     transactions.push({
       id: `${year}-${month}-${i}`,
-      description: `${category.icon} ${description}`,
+      description,
       amount: Math.floor(Math.random() * 200) + 10,
-      category: category.name,
+      categoryId,
       date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
       type: Math.random() > 0.9 ? 'income' : 'expense',
     });
@@ -123,11 +146,21 @@ const generateMockData = (year: number, month: number): Transaction[] => {
   // 添加一些收入项
   transactions.push({
     id: `${year}-${month}-income-1`,
-    description: '💰 工资',
+    description: '工资',
     amount: 8000,
-    category: '收入',
+    categoryId: 'income',
     date: `${year}-${String(month).padStart(2, '0')}-01`,
     type: 'income',
+  });
+
+  // 添加一个自定义类别（无emoji）的示例
+  transactions.push({
+    id: `${year}-${month}-fitness-1`,
+    description: '健身房月卡',
+    amount: 299,
+    categoryId: 'fitness',
+    date: `${year}-${String(month).padStart(2, '0')}-05`,
+    type: 'expense',
   });
 
   return transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -179,14 +212,12 @@ export default function App() {
     handleMonthMenuClose();
   };
 
-  const handleAddTransaction = (description: string, amount: number) => {
+  const handleAddTransaction = (description: string, amount: number, categoryId?: string) => {
     const newTransaction: Transaction = {
       id: `${Date.now()}`,
-      description: description.startsWith('🍔') || description.startsWith('🚗') || 
-                   description.startsWith('🛍️') || description.startsWith('🎮') || 
-                   description.startsWith('🏠') ? description : `📝 ${description}`,
+      description,
       amount,
-      category: '其他',
+      categoryId: categoryId || 'other',
       date: new Date().toISOString().split('T')[0],
       type: 'expense',
     };
@@ -233,17 +264,33 @@ export default function App() {
             >
               <CalendarToday />
             </IconButton>
-            <Menu
-              anchorEl={anchorEl}
+            <Popover
               open={Boolean(anchorEl)}
+              anchorEl={anchorEl}
               onClose={handleMonthMenuClose}
+              anchorOrigin={{
+                vertical: 'bottom',
+                horizontal: 'center',
+              }}
+              transformOrigin={{
+                vertical: 'top',
+                horizontal: 'center',
+              }}
             >
-              <MenuItem onClick={() => handleMonthChange(-1)}>上个月</MenuItem>
-              <MenuItem onClick={() => handleMonthChange(0)} disabled>
-                当前月
-              </MenuItem>
-              <MenuItem onClick={() => handleMonthChange(1)}>下个月</MenuItem>
-            </Menu>
+              <LocalizationProvider dateAdapter={AdapterDateFns} locale={zhCN}>
+                <DateCalendar
+                  value={currentDate}
+                  onChange={(date) => {
+                    if (date) {
+                      setCurrentDate(date);
+                      handleMonthMenuClose();
+                    }
+                  }}
+                  views={['year', 'month']}
+                  openTo="month"
+                />
+              </LocalizationProvider>
+            </Popover>
           </Toolbar>
         </AppBar>
 

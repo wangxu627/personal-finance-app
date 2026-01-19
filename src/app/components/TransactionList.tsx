@@ -1,5 +1,12 @@
-import { List, ListItem, ListItemText, Typography, Box, Divider, Paper } from '@mui/material';
-import type { Transaction } from '@/app/App';
+import {
+  Box,
+  List,
+  ListItem,
+  Paper,
+  Typography,
+  Divider,
+} from '@mui/material';
+import { Transaction, getCategoryById } from '@/app/App';
 
 interface TransactionListProps {
   transactions: Transaction[];
@@ -11,46 +18,31 @@ export function TransactionList({ transactions }: TransactionListProps) {
     return `${sign}¥${amount.toFixed(2)}`;
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return `${date.getMonth() + 1}/${date.getDate()}`;
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    return `${month}/${day}`;
   };
 
-  if (transactions.length === 0) {
-    return (
-      <Box
-        sx={{
-          textAlign: 'center',
-          py: 6,
-          color: 'text.secondary',
-        }}
-      >
-        <Typography variant="body2">暂无账单记录</Typography>
-        <Typography variant="caption">在下方添加您的第一笔账目</Typography>
-      </Box>
-    );
-  }
-
-  // 按日期分组
-  const groupedByDate = transactions.reduce((groups, transaction) => {
-    const date = transaction.date;
-    if (!groups[date]) {
-      groups[date] = [];
+  const groupedByDate: Record<string, Transaction[]> = {};
+  transactions.forEach(transaction => {
+    if (!groupedByDate[transaction.date]) {
+      groupedByDate[transaction.date] = [];
     }
-    groups[date].push(transaction);
-    return groups;
-  }, {} as Record<string, Transaction[]>);
+    groupedByDate[transaction.date].push(transaction);
+  });
 
-  const sortedDates = Object.keys(groupedByDate).sort((a, b) => 
-    new Date(b).getTime() - new Date(a).getTime()
-  );
+  const sortedDates = Object.keys(groupedByDate).sort((a, b) => {
+    return new Date(b).getTime() - new Date(a).getTime();
+  });
 
   return (
     <Box>
       <Typography
         variant="subtitle2"
         sx={{
-          mb: 1.5,
+          mb: 1,
           color: 'text.secondary',
           fontWeight: 500,
         }}
@@ -75,44 +67,93 @@ export function TransactionList({ transactions }: TransactionListProps) {
                 <Box key={transaction.id}>
                   <ListItem
                     sx={{
-                      py: 2,
+                      py: 0.75,
                       px: 2,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 1,
                       '&:hover': {
                         bgcolor: 'action.hover',
                       },
                     }}
                   >
-                    <ListItemText
-                      primary={
-                        <Typography
-                          variant="body1"
-                          sx={{
-                            fontWeight: 400,
-                            color: 'text.primary',
-                          }}
-                        >
-                          {transaction.description}
-                        </Typography>
+                    {/* 类别图标 */}
+                    {(() => {
+                      const category = getCategoryById(transaction.categoryId);
+                      if (category.icon) {
+                        return (
+                          <Typography
+                            component="span"
+                            sx={{ fontSize: '1.1rem', flexShrink: 0 }}
+                          >
+                            {category.icon}
+                          </Typography>
+                        );
+                      } else {
+                        return (
+                          <Box
+                            sx={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: '50%',
+                              bgcolor: category.color || '#9E9E9E',
+                              flexShrink: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              marginLeft: '3px',
+                              marginRight: '3px',
+                            }}
+                          >
+                            <Typography
+                              sx={{
+                                fontSize: '0.65rem',
+                                color: 'white',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {category.name.charAt(0)}
+                            </Typography>
+                          </Box>
+                        );
                       }
-                      secondary={
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: 'text.secondary',
-                            mt: 0.5,
-                            display: 'block',
-                          }}
-                        >
-                          {formatDate(transaction.date)}
-                        </Typography>
-                      }
-                    />
+                    })()}
                     <Typography
-                      variant="body1"
+                      variant="body2"
+                      sx={{
+                        fontWeight: 400,
+                        color: 'text.primary',
+                        flex: 1,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {transaction.description}
+                    </Typography>
+                    
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: 'text.secondary',
+                        fontSize: '0.7rem',
+                        flexShrink: 0,
+                        minWidth: '32px',
+                      }}
+                    >
+                      {formatDate(transaction.date)}
+                    </Typography>
+                    
+                    <Typography
+                      variant="body2"
                       sx={{
                         fontWeight: 500,
                         color: transaction.type === 'income' ? 'success.main' : 'text.primary',
                         fontFamily: 'monospace',
+                        flexShrink: 0,
+                        minWidth: '80px',
+                        textAlign: 'right',
                       }}
                     >
                       {formatCurrency(transaction.amount, transaction.type)}
