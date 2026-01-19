@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -95,8 +95,8 @@ export const CATEGORIES: Record<string, Category> = {
   income: { id: 'income', name: '收入', icon: '💰' },
   other: { id: 'other', name: '其他', icon: '📝' },
   // 自定义类别示例（无 emoji，使用颜色）
-  fitness: { id: 'fitness', name: '健身', color: '#4CAF50' },
-  education: { id: 'education', name: '教育', color: '#2196F3' },
+  fitness: { id: 'custom-fitness', name: '健身', color: '#4CAF50' },
+  education: { id: 'custom-education', name: '教育', color: '#2196F3' },
 };
 
 // 根据类别ID获取类别配置
@@ -113,80 +113,194 @@ export interface Transaction {
   type: 'expense' | 'income';
 }
 
-const generateMockData = (year: number, month: number): Transaction[] => {
-  const expenseCategories: (keyof typeof CATEGORIES)[] = ['food', 'transport', 'shopping', 'entertainment', 'daily'];
-  
-  const descriptions: Record<string, string[]> = {
-    food: ['早餐', '午餐', '晚餐', '咖啡', '奶茶', '水果'],
-    transport: ['打车', '地铁', '公交', '停车费', '加油'],
-    shopping: ['衣服', '鞋子', '日用品', '电子产品', '书籍'],
-    entertainment: ['电影', '游戏', '运动', '音乐会', 'KTV'],
-    daily: ['水电费', '房租', '话费', '网费', '医药'],
-  };
+const DB_NAME = 'finance-db';
+const DB_VERSION = 1;
+const TRANSACTION_STORE_NAME = 'transactions';
+const CATEGORY_STORE_NAME = 'categories';
 
-  const transactions: Transaction[] = [];
-  const daysInMonth = new Date(year, month, 0).getDate();
+const INITIAL_CUSTOM_CATEGORIES: Category[] = [
+  { id: 'custom-fitness', name: '健身', color: '#4CAF50' },
+  { id: 'custom-education', name: '教育', color: '#2196F3' },
+];
 
-  for (let i = 0; i < 30; i++) {
-    const categoryId = expenseCategories[Math.floor(Math.random() * expenseCategories.length)];
-    const descs = descriptions[categoryId];
-    const description = descs[Math.floor(Math.random() * descs.length)];
-    const day = Math.floor(Math.random() * daysInMonth) + 1;
-    
-    transactions.push({
-      id: `${year}-${month}-${i}`,
-      description,
-      amount: Math.floor(Math.random() * 200) + 10,
-      categoryId,
-      date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-      type: Math.random() > 0.9 ? 'income' : 'expense',
-    });
-  }
-
-  // 添加一些收入项
-  transactions.push({
-    id: `${year}-${month}-income-1`,
-    description: '工资',
-    amount: 8000,
-    categoryId: 'income',
-    date: `${year}-${String(month).padStart(2, '0')}-01`,
-    type: 'income',
+const openDb = (): Promise<IDBDatabase> =>
+  new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(TRANSACTION_STORE_NAME)) {
+        const store = db.createObjectStore(TRANSACTION_STORE_NAME, { keyPath: 'id' });
+        store.createIndex('date', 'date', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(CATEGORY_STORE_NAME)) {
+        db.createObjectStore(CATEGORY_STORE_NAME, { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
   });
 
-  // 添加一个自定义类别（无emoji）的示例
-  transactions.push({
-    id: `${year}-${month}-fitness-1`,
-    description: '健身房月卡',
-    amount: 299,
-    categoryId: 'fitness',
-    date: `${year}-${String(month).padStart(2, '0')}-05`,
-    type: 'expense',
+const getAllTransactions = async (): Promise<Transaction[]> => {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(TRANSACTION_STORE_NAME, 'readonly');
+    const store = tx.objectStore(TRANSACTION_STORE_NAME);
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result as Transaction[]);
+    request.onerror = () => reject(request.error);
   });
+};
 
-  return transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+const saveTransaction = async (transaction: Transaction): Promise<void> => {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(TRANSACTION_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(TRANSACTION_STORE_NAME);
+    const request = store.put(transaction);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const deleteTransaction = async (id: string): Promise<void> => {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(TRANSACTION_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(TRANSACTION_STORE_NAME);
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const getAllCategories = async (): Promise<Category[]> => {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CATEGORY_STORE_NAME, 'readonly');
+    const store = tx.objectStore(CATEGORY_STORE_NAME);
+    const request = store.getAll();
+    request.onsuccess = () => {
+      const all = request.result as Category[];
+
+      // 分离 custom 和 非 custom
+      const nonCustom = all.filter(c => !c.id.startsWith('custom-'));
+      const custom = all.filter(c => c.id.startsWith('custom-'));
+
+      // 根据后缀判断：纯数字归为数字组，其它归为字母组（包含字母或混合）
+      const customLetter = custom.filter(c => {
+        const suffix = c.id.slice('custom-'.length);
+        return !/^\d+$/.test(suffix);
+      });
+      const customNumber = custom.filter(c => {
+        const suffix = c.id.slice('custom-'.length);
+        return /^\d+$/.test(suffix);
+      });
+
+      // 排序：非 custom 按 id 字典序（保持确定性）
+      nonCustom.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: false }));
+
+      // 字母组按后缀字典序
+      customLetter.sort((a, b) => {
+        const sa = a.id.slice('custom-'.length);
+        const sb = b.id.slice('custom-'.length);
+        return sa.localeCompare(sb, undefined, { numeric: false });
+      });
+
+      // 数字组按数值排序
+      customNumber.sort((a, b) => {
+        const na = Number(a.id.slice('custom-'.length));
+        const nb = Number(b.id.slice('custom-'.length));
+        return na - nb;
+      });
+
+      // 最终顺序：非 custom -> custom(字母) -> custom(数字)
+      resolve([...nonCustom, ...customLetter, ...customNumber]);
+    };
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const saveCategory = async (category: Category): Promise<void> => {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CATEGORY_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(CATEGORY_STORE_NAME);
+    const request = store.put(category);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const deleteCategory = async (categoryId: string): Promise<void> => {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CATEGORY_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(CATEGORY_STORE_NAME);
+    const request = store.delete(categoryId);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const groupByMonth = (items: Transaction[]) => {
+  const grouped = items.reduce<Record<string, Transaction[]>>((acc, t) => {
+    const [y, m] = t.date.split('-');
+    const key = `${Number(y)}-${Number(m)}`;
+    (acc[key] ||= []).push(t);
+    return acc;
+  }, {});
+  Object.keys(grouped).forEach(key => {
+    grouped[key].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  });
+  return grouped;
 };
 
 export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [transactions, setTransactions] = useState<Record<string, Transaction[]>>({});
+  const [customCategories, setCustomCategories] = useState<Category[]>([]);
 
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth() + 1;
   const monthKey = `${currentYear}-${currentMonth}`;
 
-  // 获取或生成当月数据
-  const currentTransactions = transactions[monthKey] || generateMockData(currentYear, currentMonth);
-  
-  // 如果还没有这个月的数据，保存到状态中
-  if (!transactions[monthKey]) {
-    setTransactions(prev => ({
-      ...prev,
-      [monthKey]: currentTransactions,
-    }));
-  }
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const [allTx, allCats] = await Promise.all([getAllTransactions(), getAllCategories()]);
+      if (cancelled) return;
 
-  // 计算汇总
+      setTransactions(groupByMonth(allTx));
+
+      if (allCats.length === 0) {
+        await Promise.all(INITIAL_CUSTOM_CATEGORIES.map(saveCategory));
+        if (cancelled) return;
+        setCustomCategories(INITIAL_CUSTOM_CATEGORIES);
+      } else {
+        setCustomCategories(allCats);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    Object.keys(CATEGORIES).forEach((id) => {
+      if (id.startsWith('custom-')) {
+        delete CATEGORIES[id];
+      }
+    });
+    customCategories.forEach((c) => {
+      CATEGORIES[c.id] = c;
+    });
+  }, [customCategories]);
+
+  // 获取当月数据（无 mock）
+  const currentTransactions = transactions[monthKey] || [];
+
   const totalExpense = currentTransactions
     .filter(t => t.type === 'expense')
     .reduce((sum, t) => sum + t.amount, 0);
@@ -227,6 +341,21 @@ export default function App() {
       ...prev,
       [key]: [newTransaction, ...(prev[key] || [])],
     }));
+
+    void saveTransaction(newTransaction);
+  };
+
+  const handleUpsertCategory = (category: Category) => {
+    setCustomCategories(prev => {
+      const exists = prev.some(c => c.id === category.id);
+      return exists ? prev.map(c => (c.id === category.id ? category : c)) : [...prev, category];
+    });
+    void saveCategory(category);
+  };
+
+  const handleDeleteCategory = (categoryId: string) => {
+    setCustomCategories(prev => prev.filter(c => c.id !== categoryId));
+    void deleteCategory(categoryId);
   };
 
   const monthNames = [
@@ -322,7 +451,12 @@ export default function App() {
         </Box>
 
         {/* 固定底部输入区域 */}
-        <QuickAddInput onAdd={handleAddTransaction} />
+        <QuickAddInput
+          onAdd={handleAddTransaction}
+          customCategories={customCategories}
+          onUpsertCategory={handleUpsertCategory}
+          onDeleteCategory={handleDeleteCategory}
+        />
       </Box>
     </ThemeProvider>
   );

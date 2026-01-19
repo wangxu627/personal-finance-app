@@ -5,14 +5,17 @@ import {
   Paper,
   Typography,
   Divider,
+  IconButton,
 } from '@mui/material';
+import { Delete } from '@mui/icons-material';
 import { Transaction, getCategoryById } from '@/app/App';
 
 interface TransactionListProps {
   transactions: Transaction[];
+  onDelete: (transactionId: string) => void;
 }
 
-export function TransactionList({ transactions }: TransactionListProps) {
+export function TransactionList({ transactions, onDelete }: TransactionListProps) {
   const formatCurrency = (amount: number, type: 'expense' | 'income') => {
     const sign = type === 'income' ? '+' : '-';
     return `${sign}¥${amount.toFixed(2)}`;
@@ -158,6 +161,15 @@ export function TransactionList({ transactions }: TransactionListProps) {
                     >
                       {formatCurrency(transaction.amount, transaction.type)}
                     </Typography>
+
+                    <IconButton
+                      size="small"
+                      edge="end"
+                      onClick={() => onDelete(transaction.id)}
+                      aria-label="删除"
+                    >
+                      <Delete fontSize="small" />
+                    </IconButton>
                   </ListItem>
                   {(index < groupedByDate[date].length - 1 || dateIndex < sortedDates.length - 1) && (
                     <Divider component="li" />

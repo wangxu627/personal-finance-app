@@ -16,18 +16,21 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemSecondaryAction,
 } from '@mui/material';
 import { Add, AttachMoney, Category as CategoryIcon, Settings, Delete, Edit } from '@mui/icons-material';
 import { Category, CATEGORIES } from '@/app/App';
 
 interface QuickAddInputProps {
   onAdd: (description: string, amount: number, categoryId?: string) => void;
+  customCategories: Category[];
+  onUpsertCategory: (category: Category) => void;
+  onDeleteCategory: (categoryId: string) => void;
 }
 
 // 将 CATEGORIES 对象转换为数组，便于渲染
 const getDefaultCategories = (): Category[] => {
-  return (Object.values(CATEGORIES) as Category[]).filter(c => c.id !== 'income' && c.id !== 'other');
+  return (Object.values(CATEGORIES) as Category[])
+    .filter(c => c.id !== 'income' && c.id !== 'other' && !c.id.startsWith('custom-'));
 };
 
 const PRESET_COLORS = [
@@ -49,15 +52,13 @@ const PRESET_COLORS = [
   '#FF7043', // 深橙
 ];
 
-export function QuickAddInput({ onAdd }: QuickAddInputProps) {
+export function QuickAddInput({ onAdd, customCategories, onUpsertCategory, onDeleteCategory }: QuickAddInputProps) {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   
   // 分类管理相关状态
-  const [customCategories, setCustomCategories] = useState<Category[]>([]);
-  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState(PRESET_COLORS[0]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -91,7 +92,8 @@ export function QuickAddInput({ onAdd }: QuickAddInputProps) {
     setSelectedCategory(null);
   };
 
-  const handleKeyPress = (event: React.KeyboardEvent) => {
+
+  const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter') {
       handleAdd();
     }
@@ -115,24 +117,14 @@ export function QuickAddInput({ onAdd }: QuickAddInputProps) {
       return;
     }
 
-    if (editingId !== null) {
-      // 编辑模式
-      setCustomCategories(prev => prev.map(c => 
-        c.id === editingId 
-          ? { ...c, name: newCategoryName.trim(), color: newCategoryColor }
-          : c
-      ));
-      setEditingId(null);
-    } else {
-      // 新增模式
-      const newCategory: Category = {
-        id: `custom-${Date.now()}`,
-        name: newCategoryName.trim(),
-        color: newCategoryColor,
-      };
-      setCustomCategories(prev => [...prev, newCategory]);
-    }
-    
+    const category: Category = {
+      id: editingId ?? `custom-${Date.now()}`,
+      name: newCategoryName.trim(),
+      color: newCategoryColor,
+    };
+
+    onUpsertCategory(category);
+    setEditingId(null);
     setNewCategoryName('');
     setNewCategoryColor(PRESET_COLORS[0]);
   };
@@ -144,7 +136,7 @@ export function QuickAddInput({ onAdd }: QuickAddInputProps) {
   };
 
   const handleDeleteCategory = (categoryId: string) => {
-    setCustomCategories(prev => prev.filter(c => c.id !== categoryId));
+    onDeleteCategory(categoryId);
   };
 
   const renderCategoryIcon = (category: Category) => {
@@ -164,6 +156,8 @@ export function QuickAddInput({ onAdd }: QuickAddInputProps) {
       />
     );
   };
+
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
 
   return (
     <Paper
@@ -237,7 +231,7 @@ export function QuickAddInput({ onAdd }: QuickAddInputProps) {
             placeholder="例如：午餐"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyDown}
             variant="outlined"
             sx={{
               '& .MuiOutlinedInput-root': {
@@ -258,7 +252,7 @@ export function QuickAddInput({ onAdd }: QuickAddInputProps) {
                 setAmount(value);
               }
             }}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyDown}
             type="text"
             inputMode="decimal"
             InputProps={{
@@ -269,7 +263,7 @@ export function QuickAddInput({ onAdd }: QuickAddInputProps) {
               ),
             }}
             sx={{
-              width: 120,
+              width: 240,
               '& .MuiOutlinedInput-root': {
                 borderRadius: 2,
               },
@@ -305,13 +299,10 @@ export function QuickAddInput({ onAdd }: QuickAddInputProps) {
             {allCategories.map((category) => {
               const isCustom = category.id.startsWith('custom-');
               return (
-                <ListItem key={category.id}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
-                    {renderCategoryIcon(category)}
-                    <ListItemText primary={category.name} />
-                  </Box>
-                  <ListItemSecondaryAction>
-                    {isCustom && (
+                <ListItem
+                  key={category.id}
+                  secondaryAction={
+                    isCustom ? (
                       <>
                         <IconButton edge="end" onClick={() => handleEditCategory(category)} sx={{ mr: 1 }}>
                           <Edit />
@@ -320,8 +311,13 @@ export function QuickAddInput({ onAdd }: QuickAddInputProps) {
                           <Delete />
                         </IconButton>
                       </>
-                    )}
-                  </ListItemSecondaryAction>
+                    ) : null
+                  }
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
+                    {renderCategoryIcon(category)}
+                    <ListItemText primary={category.name} />
+                  </Box>
                 </ListItem>
               );
             })}
