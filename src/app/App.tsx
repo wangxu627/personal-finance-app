@@ -1,14 +1,20 @@
 /* @refresh skip */
-import { CalendarToday } from '@mui/icons-material';
+import { CalendarToday, UploadFile } from '@mui/icons-material';
 import {
   AppBar,
   Box,
   createTheme,
   CssBaseline,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
   Popover,
   ThemeProvider,
   Toolbar,
+  Button,
+  TextField,
   Typography,
 } from '@mui/material';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -251,11 +257,33 @@ const formatLocalDateTime = (d: Date) => {
   return `${datePart}T${h}:${min}:${s}`;
 };
 
+const parseImportDate = (raw: string): Date | null => {
+  const trimmed = raw.trim();
+  if (/^\d{8}$/.test(trimmed)) {
+    const year = Number(trimmed.slice(0, 4));
+    const month = Number(trimmed.slice(4, 6));
+    const day = Number(trimmed.slice(6, 8));
+    if (!Number.isNaN(year) && !Number.isNaN(month) && !Number.isNaN(day)) {
+      return new Date(year, month - 1, day, 0, 0, 0);
+    }
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+  return null;
+};
+
 export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [transactions, setTransactions] = useState<Record<string, Transaction[]>>({});
   const [customCategories, setCustomCategories] = useState<Category[]>([]);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importError, setImportError] = useState<string | null>(null);
 
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth() + 1;
@@ -348,6 +376,83 @@ export default function App() {
     void saveTransaction(newTransaction);
   };
 
+  const handleImportTransactions = async () => {
+    setImportError(null);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(importText);
+    } catch (error) {
+      setImportError('JSON 格式不正确，请检查。');
+      return;
+    }
+
+    if (!Array.isArray(parsed)) {
+      setImportError('数据必须是数组格式。');
+      return;
+    }
+
+    const now = Date.now();
+    const transactionsToAdd: Transaction[] = [];
+
+    for (let i = 0; i < parsed.length; i += 1) {
+      const item = parsed[i] as {
+        name?: string;
+        price?: number;
+        category?: string;
+        createdAt?: string;
+      };
+
+      if (!item?.name || typeof item.name !== 'string') {
+        setImportError(`第 ${i + 1} 条缺少 name。`);
+        return;
+      }
+      if (typeof item.price !== 'number' || item.price <= 0) {
+        setImportError(`第 ${i + 1} 条 price 无效。`);
+        return;
+      }
+      if (!item.category || typeof item.category !== 'string') {
+        setImportError(`第 ${i + 1} 条缺少 category。`);
+        return;
+      }
+      if (!item.createdAt || typeof item.createdAt !== 'string') {
+        setImportError(`第 ${i + 1} 条缺少 createdAt。`);
+        return;
+      }
+
+      const parsedDate = parseImportDate(item.createdAt);
+      if (!parsedDate) {
+        setImportError(`第 ${i + 1} 条 createdAt 格式不正确。`);
+        return;
+      }
+
+      const resolvedCategory = getCategoryById(item.category);
+
+      transactionsToAdd.push({
+        id: `${now}-${i}`,
+        description: item.name.trim(),
+        amount: item.price,
+        categoryId: resolvedCategory.id || 'other',
+        date: formatLocalDate(parsedDate),
+        createdAt: formatLocalDateTime(parsedDate),
+        type: 'expense',
+      });
+    }
+
+    setTransactions(prev => {
+      const next = { ...prev };
+      transactionsToAdd.forEach(t => {
+        const key = getMonthKey(new Date(t.date));
+        next[key] = [t, ...(next[key] || [])];
+      });
+      return next;
+    });
+
+    await Promise.all(transactionsToAdd.map(saveTransaction));
+
+    setImportDialogOpen(false);
+    setImportText('');
+  };
+
   const handleDeleteTransaction = (transactionId: string) => {
     const key = `${currentYear}-${currentMonth}`;
     setTransactions(prev => ({
@@ -406,6 +511,15 @@ export default function App() {
             <IconButton
               edge="end"
               color="inherit"
+              onClick={() => setImportDialogOpen(true)}
+              sx={{ color: 'text.primary' }}
+              aria-label="导入"
+            >
+              <UploadFile />
+            </IconButton>
+            <IconButton
+              edge="end"
+              color="inherit"
               onClick={handleMonthMenuOpen}
               sx={{ color: 'text.primary' }}
             >
@@ -440,6 +554,51 @@ export default function App() {
             </Popover>
           </Toolbar>
         </AppBar>
+
+        <Dialog
+          open={importDialogOpen}
+          onClose={() => {
+            setImportDialogOpen(false);
+            setImportError(null);
+          }}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>导入交易</DialogTitle>
+          <DialogContent>
+            <TextField
+              multiline
+              minRows={8}
+              fullWidth
+              placeholder="粘贴 JSON 数组"
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              sx={{ mt: 1 }}
+            />
+            {importError && (
+              <Typography variant="body2" color="error" sx={{ mt: 1 }}>
+                {importError}
+              </Typography>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => {
+                setImportDialogOpen(false);
+                setImportError(null);
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleImportTransactions}
+              disabled={!importText.trim()}
+            >
+              导入
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         {/* 当前月份显示 */}
         <Box sx={{ px: 2, pt: 2, pb: 1 }}>
