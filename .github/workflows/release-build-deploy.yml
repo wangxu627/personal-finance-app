@@ -42,7 +42,10 @@ jobs:
       - run: npm run build:ci
       # ...deploy...
       - run: |
-          # 用于准备 SSH 私钥与 known_hosts，并将 dist 上传到服务器目录
+          # SSH_KEY 为私钥（放 GitHub Secrets），服务器需配置对应公钥（~/.ssh/authorized_keys）
+          # 生成示例：ssh-keygen -t ed25519 -C "github-actions" -f ./id_ed25519
+          # 可在任意本机生成密钥对
+          # 私钥内容 -> SSH_KEY，公钥内容追加到服务器 ~/.ssh/authorized_keys
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
